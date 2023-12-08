@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
+import java.net.SocketAddress;
 import java.net.UnknownHostException;
 import java.util.HashMap;
 
@@ -29,8 +30,10 @@ public class DNSServer {
      */
     private DNSZone zone;
 
-    // TODO: add class variable for the cache
-    // TODO: add class variable to track pending queries
+    // add class variable for the cache
+    private DNSCache cache;
+    // add class variable to track pending queries
+    private HashMap<Integer, SocketAddress> pendingQueries;
 
     /**
      * all queries sent from this server will go to a single "upstream" server
@@ -46,7 +49,10 @@ public class DNSServer {
     public DNSServer(DNSZone zone) {
         this.zone = zone;
 
-        /* TODO: add a DNSCache object */
+        /*add a DNSCache object */
+	this.cache = new DNSCache();
+	this.pendingQueries = new HashMap<>();
+
 
         // set our upstream server to be 127.0.0.53
         // note: we're assuming this is running on a recent Ubuntu system
@@ -78,7 +84,10 @@ public class DNSServer {
         boolean inZone = true;
         var records = zone.getRecords(query.getQuestionName(), query.getQuestionType(), query.getQuestionClass());
 
-        // TODO: look for the record in the cache if it's not in our zone
+        // look for the record in the cache if it's not in our zone
+        if (records.size() == 0) {	
+	 	records = cache.getRecords(query.getQuestionName(), query.getQuestionType(), query.getQuestionClass());
+	}
 
         // send the response back to the client if we found the record either in the zone or the cache
         if(records.size() != 0) {
@@ -93,36 +102,47 @@ public class DNSServer {
             return new DatagramPacket(reply.getData(), reply.getDataLength(), query.getPacket().getSocketAddress());
         }
 
-        // if we didn't find the record, send to the next server (see nextServer and nextServerPort variables)
+	// If not found, print forwarding information
+	System.out.println("Forwarding Query to " + nextServer + ":" + nextServerPort);
+    	System.out.println(query);
 
-        // TODO: print the response message contents
+        // store the query so we can respond to it when we get a reply
+	pendingQueries.put(query.getID(), query.getPacket().getSocketAddress());
 
-        // TODO: store the query so we can respond to it when we get a reply
-
-        // TODO: make and return a new DatagramPacket query packet to forward
+        // make and return a new DatagramPacket query packet to forward
+	return new DatagramPacket(query.getData(), query.getDataLength(), nextServer, nextServerPort);
     }
 
     /**
      * handle one incoming DNS reply message
-     * TODO: complete me!
      *
      * @param   reply   the incoming reply message
      * @return          a DatagramPacket object with the response message
      */
     private DatagramPacket handleReply(DNSMessage reply) {
-        // print the reply message contents
-        System.out.println("Reply received from " + reply.getPacket().getSocketAddress());
-        System.out.println(reply);
 
-        // TODO: match the reply to the original query
-        
-        // TODO: add answers to the cache
+        // match the reply to the original query
+        SocketAddress clientAddress = pendingQueries.remove(reply.getID());
+	
+	// error case if no match
+	if(clientAddress == null){
+		return null; 
+	}
 
-        // TODO: remove the original query from the outstanding set
+        // add answers to the cache
+	for (DNSRecord record : reply.getAnswers()) {
+        cache.addRecord(record);
+        }
+	
+ 	// Print forwarding information
+	// Print the forwarding message
+        System.out.println("Forwarding Reply to " + clientAddress);
+    	System.out.println(reply);
 
-        // TODO: print the reply message again for consistency
 
-        // TODO: make and return a new response packet to send to the original client
+        // make and return a new response packet to send to the original client
+    	DatagramPacket responsePacket = new DatagramPacket(reply.getData(), reply.getDataLength(), clientAddress);
+    	return responsePacket;
     }
 
     /**
@@ -132,7 +152,8 @@ public class DNSServer {
      * @return              a UDP packet containing the DNS response
      */
     private DatagramPacket handleMessage(DatagramPacket incomingPkt) {
-        // TODO: update the cache each time we receive a message, to remove any records with expired TTLs
+        // update the cache each time we receive a message, to remove any records with expired TTLs
+	cache.cleanup();
 
         // create a DNS Message object that will parse the request packet data
         var incomingMessage = new DNSMessage(incomingPkt);

@@ -43,7 +43,8 @@ public class DNSRecord {
      */
     private String data;
 
-    // TODO: add something to track when this record object was stored
+    // add something to track when this record object was stored
+    private Instant creationTime;
 
     /**
      * map the various required Class numbers to their human readable names
@@ -186,6 +187,7 @@ public class DNSRecord {
         this.ttl = ttl;
         this.data = data;
         setDataLength();
+	this.creationTime = Instant.now(); // Set creation time for record
     }
 
     /**
@@ -276,4 +278,11 @@ public class DNSRecord {
     public String getData() {
         return data;
     }
+
+    /*
+     * Checks for expired record using ttl
+     */
+   public boolean isExpired(){
+	return Instant.now().isAfter(creationTime.plusSeconds(ttl));
+   } 
 }
